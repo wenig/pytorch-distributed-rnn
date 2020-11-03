@@ -19,15 +19,9 @@ class Trainer:
                  checkpoint_dir=None, sampler=None):
         self.model = model
         self.checkpoint_dir = checkpoint_dir
-        self.sampler = sampler or DistributedSampler(
-            training_set,
-            num_replicas=1,
-            rank=0
-        )
         self.train_loader = self._get_data_loader(
             training_set,
             batch_size,
-            sampler=self.sampler
         )
         self.validation_loader = self._get_data_loader(
             validation_set,
@@ -71,8 +65,6 @@ class Trainer:
             best_loss = None
 
             for epoch in range(epochs):
-                if self.sampler is not None:
-                    self.sampler.set_epoch(epoch)
                 logging.info(formatter.epoch_start_message(epoch))
                 train_loss, train_acc = self._train_step(formatter)
                 training_history.append(train_loss)
