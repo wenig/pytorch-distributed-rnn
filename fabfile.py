@@ -37,6 +37,8 @@ DEBUG_RUN = {
     }
 }
 
+N = 5
+
 WORK_DIR = Path('~/susml/jakob_torben')
 BIN_DIR = WORK_DIR / 'bin'
 SRC_DIR = WORK_DIR / 'src'
@@ -52,17 +54,18 @@ TRAIN_RUNS = [
         'slots': 1,
         'parameters': {
             # Batch size should be a multiple of 96, to make training on
-            # 1, 2, 4, 8, and 12 nodes with 1, 2 and 4 slots reproducible
+            # 1, 2, 4, 6, 8, 10, and 12 nodes with 1 slots reproducible
             '--batch-size': batch_size,
             '--epochs': 1,
             '--seed': 123456789,
             '--no-validation': ''
-        }
+        },
+        'run': n
     }
     for batch_size in [480, 960, 1440]
-    for num_hosts in [1, 2, 4, 8, 12]
-    for trainer in ['local', 'distributed', 'horovod']
-    if trainer != 'local' or num_hosts == 1
+    for num_hosts in [1, 2, 4, 6, 8, 10, 12]
+    for trainer in ['distributed', 'horovod']
+    for n in range(0, N)
 ]
 
 
@@ -198,7 +201,8 @@ def get_command(
         slots_per_host,
         hosts,
         bin_dir,
-        train_script
+        train_script,
+        run_number
 ):
     host_string = ','.join(
         f'{address}:{slots_per_host}'
@@ -213,10 +217,10 @@ def get_command(
 
     if trainer == 'local':
         assert (num_hosts == slots_per_host == 1)
-        command = f'{python_bin} {train_script} {parameter_string} local'
+        command = f'echo "Run {run_number}"; {python_bin} {train_script} {parameter_string} local'
     elif trainer == 'distributed':
         command = (
-            'mpirun --bind-to none --map-by slot '
+            f'echo "Run {run_number}"; mpirun --bind-to none --map-by slot '
             f'-np {num_hosts * slots_per_host} '
             f'--host {host_string} '
             f'{python_bin} {train_script} {parameter_string} distributed'
@@ -224,6 +228,7 @@ def get_command(
     elif trainer == 'horovod':
         horovod_bin = Path(bin_dir) / 'horovodrun'
         command = (
+            f'echo "Run {run_number}"; '
             f'{horovod_bin} --start-timeout 300 '
             f'-np {num_hosts * slots_per_host} '
             f'--hosts {host_string} '
@@ -265,7 +270,8 @@ def run_training(
             slots_per_host=run['slots'],
             hosts=hosts,
             bin_dir=bin_dir,
-            train_script=train_script
+            train_script=train_script,
+            run_number=run['run']
         )
         with open(result_filename, 'r') as f:
             results = json.load(f)['results']
@@ -294,6 +300,27 @@ def run_training(
 def run_all(c):
     run_training(connection=c, hosts=HOSTS)
 
+@task
+def run_local(c):
+    configurations = [
+        {
+            'trainer': 'local',
+            'hosts': 1,
+            'slots': 1,
+            'parameters': {
+                # Batch size should be a multiple of 96, to make training on
+                # 1, 2, 4, 6, 8, 10, and 12 nodes with 1 slots reproducible
+                '--batch-size': batch_size,
+                '--epochs': 1,
+                '--seed': 123456789,
+                '--no-validation': ''
+            },
+            'run': n
+        }
+        for batch_size in [480, 960, 1440]
+        for n in range(0, N)
+    ]
+    run_training(connection=c, hosts=["localhost"], configurations=configurations)
 
 @task
 def run_debug(c):
